@@ -1,0 +1,411 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+setwd("C:/Users/mpkraft/OneDrive - New York State Office of Information Technology Services/Lakes Database/Current")
+
+#Script to read in new database
+library(tidyverse)
+#Reading in new database
+lake<-read.csv("new_database/L_LAKE.csv",na.strings=c("","NA"), stringsAsFactors=FALSE)
+location<-read.csv("new_database/L_LOCATION.csv",na.strings=c("","NA"), stringsAsFactors=FALSE)
+sei<-read.csv('new_database/sample_event_information.csv')
+sei<-sei %>% rename(LOCATION_HISTORY_ID=SEI_LOCATION_HISTORY_ID,
+                    SAMPLE_DATE=SEI_EVENT_LMAS_SAMPLE_DATE,
+                    SAMPLE_TIME=SEI_EVENT_LMAS_SAMPLE_TIME,
+                    DATA_PROVIDER=SEI_EVENT_LMAS_DATA_PROVIDER,
+                    SAMPLE_TYPE=SEI_SAMPLE_TYPE,
+                    INFORMATION_TYPE=SEI_INFORMATION_TYPE,
+                    SAMPLE_NAME=SEI_SAMPLE_NAME)
+results<-read.csv("new_database/results.csv",na.strings=c("","NA"), stringsAsFactors=FALSE)
+results<-results %>% rename(LOCATION_HISTORY_ID=RSLT_LOCATION_HISTORY_ID,
+                            SAMPLE_DATE=RSLT_EVENT_LMAS_SAMPLE_DATE,
+                            SAMPLE_TIME=RSLT_EVENT_LMAS_SAMPLE_TIME,
+                            DATA_PROVIDER=RSLT_EVENT_LMAS_DATA_PROVIDER,
+                            SAMPLE_TYPE=RSLT_SAMPLE_TYPE,
+                            INFORMATION_TYPE=RSLT_INFORMATION_TYPE,
+                            LABORATORY_SAMPLE_NAME=RSLT_LABORATORY_SAMPLE_NAME,
+                            CHARACTERISTIC_NAME=RSLT_CHARACTERISTIC_NAME,
+                            LABORATORY_NAME_CDE=RSLT_LABORATORY_NAME_CDE)
+wc<-read.csv("new_database/water_column.csv")
+wc<-wc %>% 
+  rename(LOCATION_HISTORY_ID=WCFD_LOCATION_HISTORY_ID,
+         SAMPLE_DATE=WCFD_EVENT_LMAS_SAMPLE_DATE,
+         SAMPLE_TIME=WCFD_EVENT_LMAS_SAMPLE_TIME,
+         DATA_PROVIDER=WCFD_EVENT_LMAS_DATA_PROVIDER,
+         SAMPLE_TYPE=WCFD_SAMPLE_TYPE,
+         INFORMATION_TYPE=WCFD_INFORMATION_TYPE)
+cslap_field<-read.csv("new_database/cslap.field.csv")
+cslap_field<-cslap_field %>% 
+  rename(LOCATION_HISTORY_ID=CSLAPFD_LOCATION_HISTORY_ID,
+         SAMPLE_DATE=CSLAPFD_EVENT_LMAS_SAMPLE_DATE,
+         SAMPLE_TIME=CSLAPFD_EVENT_LMAS_SAMPLE_TIME,
+         DATA_PROVIDER=CSLAPFD_EVENT_LMAS_DATA_PROVIDER,
+         SAMPLE_TYPE=CSLAPFD_SAMPLE_TYPE)
+lci_field<-read.csv("new_database/lci.field.csv")
+lci_field<-lci_field %>% 
+  rename(LOCATION_HISTORY_ID=LCIFD_LOCATION_HISTORY_ID,
+         SAMPLE_DATE=LCIFD_EVENT_LMAS_SAMPLE_DATE,
+         SAMPLE_TIME=LCIFD_EVENT_LMAS_SAMPLE_TIME,
+         DATA_PROVIDER=LCIFD_EVENT_LMAS_DATA_PROVIDER,
+         SAMPLE_TYPE=LCIFD_SAMPLE_TYPE)
+habs_field<-read.csv("new_database/habs.field.csv")
+habs_field<-habs_field %>% 
+  rename(LOCATION_HISTORY_ID=HFD_LOCATION_HISTORY_ID,
+         SAMPLE_DATE=HFD_EVENT_LMAS_SAMPLE_DATE,
+         SAMPLE_TIME=HFD_EVENT_LMAS_SAMPLE_TIME,
+         DATA_PROVIDER=HFD_EVENT_LMAS_DATA_PROVIDER,
+         SAMPLE_TYPE=HFD_SAMPLE_TYPE,
+         INFORMATION_TYPE=HFD_INFORMATION_TYPE) %>% 
+  select(-HFD_SAMPLE_NAME)
+macrophyte<-read.csv("new_database/macrophyte.csv")
+macrophyte<-macrophyte %>% 
+  rename(LOCATION_HISTORY_ID=MS_LOCATION_HISTORY_ID,
+       SAMPLE_DATE=MS_EVENT_LMAS_SAMPLE_DATE,
+       SAMPLE_TIME=MS_EVENT_LMAS_SAMPLE_TIME,
+       DATA_PROVIDER=MS_EVENT_LMAS_DATA_PROVIDER,
+       SAMPLE_TYPE=MS_SAMPLE_TYPE,
+       INFORMATION_TYPE=MS_INFORMATION_TYPE)
+status<-read.csv("new_database/habs.status.csv")
+status<-status %>% 
+  rename(LOCATION_HISTORY_ID=HS_LOCATION_HISTORY_ID,
+         SAMPLE_DATE=HS_EVENT_LMAS_SAMPLE_DATE,
+         SAMPLE_TIME=HS_EVENT_LMAS_SAMPLE_TIME,
+         DATA_PROVIDER=HS_EVENT_LMAS_DATA_PROVIDER,
+         SAMPLE_TYPE=HS_SAMPLE_TYPE,
+         INFORMATION_TYPE=HS_INFORMATION_TYPE)
+microscopy<-read.csv("new_database/microscopy.csv")
+microscopy<-microscopy %>% 
+  rename(LOCATION_HISTORY_ID=MR_LOCATION_HISTORY_ID,
+         SAMPLE_DATE=MR_EVENT_LMAS_SAMPLE_DATE,
+         SAMPLE_TIME=MR_EVENT_LMAS_SAMPLE_TIME,
+         DATA_PROVIDER=MR_EVENT_LMAS_DATA_PROVIDER,
+         SAMPLE_TYPE=MR_SAMPLE_TYPE,
+         INFORMATION_TYPE=MR_INFORMATION_TYPE,
+         SAMPLE_NAME=MR_SAMPLE_NAME,
+         LABORATORY_SAMPLE_NAME=MR_LABORATORY_SAMPLE_NAME,
+         CHARACTERISTIC_NAME=MR_CHARACTERISTIC_NAME,
+         LABORATORY_NAME_CDE=MR_LABORATORY_NAME_CDE)
+
+newdata<-merge(lake,location,by=c('LAKE_HISTORY_ID'),all=TRUE)
+newdata1<-merge(results,sei,by=c('LOCATION_HISTORY_ID','SAMPLE_DATE','SAMPLE_TIME','DATA_PROVIDER','SAMPLE_TYPE','INFORMATION_TYPE'),all=TRUE)
+newdata2<-merge(microscopy,sei,by=c('LOCATION_HISTORY_ID','SAMPLE_DATE','SAMPLE_TIME','DATA_PROVIDER','SAMPLE_TYPE','INFORMATION_TYPE','SAMPLE_NAME'),all=TRUE)
+newdata1<-merge(newdata2,newdata1,by=c("LOCATION_HISTORY_ID","SAMPLE_DATE","SAMPLE_TIME","DATA_PROVIDER","SAMPLE_TYPE","INFORMATION_TYPE",
+  "SAMPLE_NAME","CHARACTERISTIC_NAME","LABORATORY_NAME_CDE","LABORATORY_SAMPLE_NAME","SEI_SAMPLE_ID","SEI_PURPOSE"),all=TRUE)
+rm(newdata2)
+newdata3<-merge(wc,cslap_field,by=c('LOCATION_HISTORY_ID','SAMPLE_DATE','SAMPLE_TIME','DATA_PROVIDER','SAMPLE_TYPE'),all=TRUE)
+newdata3<-merge(newdata3,lci_field,by=c('LOCATION_HISTORY_ID','SAMPLE_DATE','SAMPLE_TIME','DATA_PROVIDER','SAMPLE_TYPE'),all=TRUE)
+newdata3<-merge(newdata3,habs_field,by=c('LOCATION_HISTORY_ID','SAMPLE_DATE','SAMPLE_TIME','DATA_PROVIDER','SAMPLE_TYPE','INFORMATION_TYPE'),all=TRUE)
+newdata3<-merge(macrophyte,newdata3,by=c('LOCATION_HISTORY_ID','SAMPLE_DATE','SAMPLE_TIME','DATA_PROVIDER','SAMPLE_TYPE','INFORMATION_TYPE'),all=TRUE)
+newdata3<-merge(status,newdata3,by=c('LOCATION_HISTORY_ID','SAMPLE_DATE','SAMPLE_TIME','DATA_PROVIDER','SAMPLE_TYPE','INFORMATION_TYPE'),all=TRUE)
+newdata3<-merge(newdata3,sei,by=c('LOCATION_HISTORY_ID','SAMPLE_DATE','SAMPLE_TIME','DATA_PROVIDER','SAMPLE_TYPE','INFORMATION_TYPE'),all=TRUE)
+
+newdata1<-merge(newdata1,newdata3,by=c('LOCATION_HISTORY_ID','SAMPLE_DATE','SAMPLE_TIME','DATA_PROVIDER','SAMPLE_TYPE','INFORMATION_TYPE',"SEI_SAMPLE_ID","SEI_PURPOSE","SAMPLE_NAME"),all=TRUE)
+
+newdata<-merge(newdata,newdata1,by=c('LOCATION_HISTORY_ID'),all=TRUE)
+rm(newdata1)
+rm(newdata3)
+newdata<-newdata %>% 
+  mutate(SAMPLE_DATE=as.Date(SAMPLE_DATE,format="%Y-%m-%d"))
+```
+
+
+```{r}
+library(tidymodels)
+library(ISLR)
+library(rpart.plot)
+library(vip)
+
+landcover_2016 <- read_csv("~/R/landcover_2016.csv")
+
+landcover_2016<-landcover_2016 %>% 
+  rename(LAKE_HISTORY_ID = Lake_ID)
+
+past_10yr<-newdata %>% 
+  filter(SAMPLE_DATE > "2011-01-01")
+
+past_10yr_TP<-past_10yr %>% 
+  filter(CHARACTERISTIC_NAME == "PHOSPHORUS, TOTAL") %>%
+  filter(INFORMATION_TYPE == "OW") %>% 
+  filter(RSLT_VALIDATOR_QUALIFIER != "R" | is.na(RSLT_VALIDATOR_QUALIFIER)) %>% 
+  group_by(LAKE_HISTORY_ID) %>% 
+  mutate(RSLT_RESULT_VALUE = mean(RSLT_RESULT_VALUE, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  distinct(LAKE_HISTORY_ID, .keep_all = TRUE)
+
+past_10yr_TP<-past_10yr_TP %>% 
+  select(LAKE_HISTORY_ID, RSLT_RESULT_VALUE)
+
+TP_matrix<-inner_join(past_10yr_TP, landcover_2016, by = "LAKE_HISTORY_ID")
+
+TP_matrix<-na.omit(TP_matrix)
+
+TP_matrix<-TP_matrix %>% 
+  mutate(NATURAL = as.numeric(NATURAL)) %>% 
+  rename(TP = RSLT_RESULT_VALUE)
+
+TP_matrix<-na.omit(TP_matrix)
+
+TP_matrix<-as.data.frame(TP_matrix)
+
+```
+
+
+```{r}
+library(bootstrap)
+library(rpart)
+library(lmtest)
+library(car)
+
+h0<-NA
+h1<-NA
+TP<-TP_matrix[,2]
+NATURAL<-TP_matrix[,3]
+
+
+cpdev2 <- rpart (NATURAL~TP)             # This is the entire tree
+cpdev1 <- snip.rpart(cpdev2,toss=2) # This trims one branch
+cpdev <- snip.rpart(cpdev1, toss=3) # This has only the first split
+
+rpart.plot(cpdev)  # This plots the first split, which is the changepoint.
+cpdev
+
+# The top number is the changepoint
+# The bottom numbers are the averages of the response data to the left and the
+# right of the changepoint.
+
+### NOTE - Click on the graph, then select "Recording" from the "History"
+# pull-down menu in the top left corner of the RGui window.  This will allow you
+# to save graphs in memory.  Use the page up and page down buttons to cycle
+# through the graphs in memory.
+
+
+cpdev2 ### The entire tree based on RPART
+rpart.plot(cpdev2)
+
+z<- cpdev$splits[1,4]   # x value of changepoint
+cpdev$frame
+num<-cpdev$frame[1,2]
+avg<-mean(NATURAL)  # or cpdev$frame[1,5] will also get overall average
+highx<-subset(TP_matrix, TP_matrix[,2]>z)
+lowx<-subset(TP_matrix, TP_matrix[,2]<=z)
+low<-mean(lowx[,2])
+high<-mean(highx[,2])
+
+
+out2<-c(z, low, high)
+names(out2)<-c("chngp","mean left","mean right")
+out2 ### This is the changepoint based on RPART
+
+###########################################################################
+###### Song Qian's (Duke Univeristy) code for computing changepoint with p-value
+###### Song's code computes a slightly different changepoing.  I am not sure
+###### if one is better than the other.
+
+   mx <- sort(unique(TP))
+   m <- length(mx)
+   vi <- numeric()
+   vi [m] <- sum((NATURAL - mean(NATURAL))^2)
+
+   for(i in 1:(m-1)) {
+      vi[i] <- sum((NATURAL[TP <= mx[i]] - mean(NATURAL[TP <=
+               mx[i]]))^2) + sum((NATURAL[TP > mx[i]] - mean(
+               NATURAL[TP > mx[i]]))^2)
+              }
+   chngp <- mean(mx[vi == min(vi)])
+
+   F.stat <- (vi[m]-min(vi))*(length(TP)-2)/(vi[m]*2)
+   p.value <- 1-pf(F.stat, 2, length(TP)-2)
+   out <- c(chngp, p.value, mean(NATURAL[TP <= chngp]), mean(NATURAL[TP > chngp]))
+   names(out) <- c("chngp", "p-value", "mean left", "mean right")
+   out
+
+##### bootstrap estimate of changepoint
+
+theta <- function(x){rpart(TP_matrix[x,3]~TP_matrix[x,2])$splits[1,4]}
+results<- bootstrap(1:num,1000,theta)
+hist(results$thetastar,breaks=100, col="darkgray",
+    main="Histogram of Bootstrap Changepoints", xlab = "TP (ug/L)")
+#mean(results$thetastar)
+#summary(results$thetastar)
+
+## 90% confidence interval for changepoint
+quantile(results$thetastar,c(0.05,0.95))
+
+
+####### SCATTERPLOT WITH CHANGEPOINT
+# Do you want open circles or solid circles for data points in the scatterplot?
+circle<-1  # 1=open, 16=solid
+circlecol<- "black"  #enter a color
+
+# Do you want to display a LOWESS regression line on the scatterplot?
+lowessline<-"Y"       # enter "Y" or "N"
+lowesscol<-"blue"   # enter a color
+lowesslwd<-2        # enter a width
+lowesslty<-1        # enter line type (1=solid,2=dashed,3=dotted)
+
+# Do you want to display a vertical line respresenting the changepoint on
+# the scatterplot?
+cpline<-"Y"       # enter "Y" or "N"
+cpcol<-"red"   # enter a color
+cplwd<-2        # enter a width
+cplty<-1        # enter line type (1=solid,2=dashed,3=dotted)
+
+# Do you want to display horizontal lines that show the average response
+# values on either side of the changepoint?
+avline<-"Y"       # enter "Y" or "N"
+avcol<-"green"   # enter a color
+avlwd<-2        # enter a width
+avlty<-1        # enter line type (1=solid,2=dashed,3=dotted)
+
+# Do you want to display a horizontal line that shows the average response
+# value for all the data?
+aline<-"Y"       # enter "Y" or "N"
+acol<-"black"   # enter a color
+alwd<-1        # enter a width
+alty<-3        # enter line type (1=solid,2=dashed,3=dotted)
+
+
+
+plot (TP,NATURAL, ylab="% Natural Land Cover",bty="l", col=circlecol, pch=circle,xlab="TP (ug/L)")
+if(lowessline=="Y"){lines(lowess(NATURAL~TP), lwd=lowesslwd, col=lowesscol,lty=lowesslty)}
+if(cpline=="Y"){abline(v=z, col=cpcol, lwd=cplwd, lty=cplty)}# changepoint of stressor variable
+if(aline=="Y"){abline(h=avg, col=acol, lwd=alwd,lty=alty)}   # average of all data
+if(avline=="Y"){segments(0,low,z,low,col=avcol, lwd=avlwd, lty=avlty) #average of response data on left
+segments(z,high,max(TP),high,col=avcol, lwd=avlwd, lty=avlty)} #average of resonse data on right
+
+
+
+
+
+
+```
+
+```{r}
+
+h0<-NA
+h1<-NA
+TP<-TP_matrix[,2]
+NATURAL<-TP_matrix[,3]
+
+
+cpdev2 <- rpart (TP ~ NATURAL)             # This is the entire tree
+cpdev1 <- snip.rpart(cpdev2,toss=2) # This trims one branch
+cpdev <- snip.rpart(cpdev1, toss=3) # This has only the first split
+
+rpart.plot(cpdev)  # This plots the first split, which is the changepoint.
+cpdev
+
+# The top number is the changepoint
+# The bottom numbers are the averages of the response data to the left and the
+# right of the changepoint.
+
+### NOTE - Click on the graph, then select "Recording" from the "History"
+# pull-down menu in the top left corner of the RGui window.  This will allow you
+# to save graphs in memory.  Use the page up and page down buttons to cycle
+# through the graphs in memory.
+
+
+cpdev2 ### The entire tree based on RPART
+rpart.plot(cpdev2)
+
+z<- cpdev$splits[1,4]   # x value of changepoint
+cpdev$frame
+num<-cpdev$frame[1,2]
+avg<-mean(NATURAL)  # or cpdev$frame[1,5] will also get overall average
+highx<-subset(TP_matrix, TP_matrix[,3]>z)
+lowx<-subset(TP_matrix, TP_matrix[,3]<=z)
+low<-mean(lowx[,3])
+high<-mean(highx[,3])
+
+
+out2<-c(z, low, high)
+names(out2)<-c("chngp","mean left","mean right")
+out2 ### This is the changepoint based on RPART
+
+###########################################################################
+###### Song Qian's (Duke Univeristy) code for computing changepoint with p-value
+###### Song's code computes a slightly different changepoing.  I am not sure
+###### if one is better than the other.
+
+   mx <- sort(unique(NATURAL))
+   m <- length(mx)
+   vi <- numeric()
+   vi [m] <- sum((TP - mean(TP))^2)
+
+   for(i in 1:(m-1)) {
+      vi[i] <- sum((TP[NATURAL <= mx[i]] - mean(TP[NATURAL <=
+               mx[i]]))^2) + sum((TP[NATURAL > mx[i]] - mean(
+               TP[NATURAL > mx[i]]))^2)
+              }
+   chngp <- mean(mx[vi == min(vi)])
+
+   F.stat <- (vi[m]-min(vi))*(length(NATURAL)-2)/(vi[m]*2)
+   p.value <- 1-pf(F.stat, 2, length(NATURAL)-2)
+   out <- c(chngp, p.value, mean(TP[NATURAL <= chngp]), mean(TP[NATURAL > chngp]))
+   names(out) <- c("chngp", "p-value", "mean left", "mean right")
+   out
+
+##### bootstrap estimate of changepoint
+
+theta <- function(x){rpart(TP_matrix[x,2]~TP_matrix[x,3])$splits[1,4]}
+results<- bootstrap(1:num,1000,theta)
+hist(results$thetastar,breaks=100, col="darkgray",
+    main="Histogram of Bootstrap Changepoints", xlab = "% Natural Land Cover")
+#mean(results$thetastar)
+#summary(results$thetastar)
+
+## 90% confidence interval for changepoint
+quantile(results$thetastar,c(0.05,0.95))
+
+
+####### SCATTERPLOT WITH CHANGEPOINT
+# Do you want open circles or solid circles for data points in the scatterplot?
+circle<-1  # 1=open, 16=solid
+circlecol<- "black"  #enter a color
+
+# Do you want to display a LOWESS regression line on the scatterplot?
+lowessline<-"Y"       # enter "Y" or "N"
+lowesscol<-"blue"   # enter a color
+lowesslwd<-2        # enter a width
+lowesslty<-1        # enter line type (1=solid,2=dashed,3=dotted)
+
+# Do you want to display a vertical line respresenting the changepoint on
+# the scatterplot?
+cpline<-"Y"       # enter "Y" or "N"
+cpcol<-"red"   # enter a color
+cplwd<-2        # enter a width
+cplty<-1        # enter line type (1=solid,2=dashed,3=dotted)
+
+# Do you want to display horizontal lines that show the average response
+# values on either side of the changepoint?
+avline<-"Y"       # enter "Y" or "N"
+avcol<-"green"   # enter a color
+avlwd<-2        # enter a width
+avlty<-1        # enter line type (1=solid,2=dashed,3=dotted)
+
+# Do you want to display a horizontal line that shows the average response
+# value for all the data?
+aline<-"Y"       # enter "Y" or "N"
+acol<-"black"   # enter a color
+alwd<-1        # enter a width
+alty<-3        # enter line type (1=solid,2=dashed,3=dotted)
+
+
+
+plot (TP,NATURAL, ylab="% Natural Land Cover",bty="l", col=circlecol, pch=circle,xlab="TP (ug/L)")
+if(lowessline=="Y"){lines(lowess(NATURAL~TP), lwd=lowesslwd, col=lowesscol,lty=lowesslty)}
+if(cpline=="Y"){abline(v=z, col=cpcol, lwd=cplwd, lty=cplty)}# changepoint of stressor variable
+if(aline=="Y"){abline(h=avg, col=acol, lwd=alwd,lty=alty)}   # average of all data
+if(avline=="Y"){segments(0,low,z,low,col=avcol, lwd=avlwd, lty=avlty) #average of response data on left
+segments(z,high,max(TP),high,col=avcol, lwd=avlwd, lty=avlty)} #average of resonse data on right
+
+
+
+```
+
+
+
+
