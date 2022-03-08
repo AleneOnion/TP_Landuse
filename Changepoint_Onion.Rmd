@@ -4,9 +4,11 @@ output: html_notebook
 ---
 
 ```{r}
-setwd("C:/Users/leneo/Dropbox/Alene/Rscripts/Current")
-source("new_database/Reading.LMAS.Data.R")
-setwd("C:/Users/leneo/Dropbox/Alene/Rscripts/Probability.Sampling")
+# setwd("C:/Users/leneo/Dropbox/Alene/Rscripts/Current")
+# source("new_database/Reading.LMAS.Data.R")
+# setwd("C:/Users/leneo/Dropbox/Alene/Rscripts/TP_Landuse")
+
+rm(list=setdiff(ls(), c("newdata")))
 
 ```
 
@@ -17,7 +19,7 @@ library(ISLR)
 library(rpart.plot)
 library(vip)
 
-landcover_2016 <- read_csv("~/R/landcover_2016.csv")
+landcover_2016 <- read_csv("landcover_2016.csv")
 
 landcover_2016<-landcover_2016 %>% 
   rename(LAKE_HISTORY_ID = Lake_ID)
@@ -51,7 +53,7 @@ TP_matrix<-as.data.frame(TP_matrix)
 
 ```
 
-
+TP~Landuse
 ```{r}
 library(bootstrap)
 library(rpart)
@@ -182,6 +184,7 @@ segments(z,high,max(TP),high,col=avcol, lwd=avlwd, lty=avlty)} #average of reson
 
 ```
 
+Landuse~TP
 ```{r}
 
 h0<-NA

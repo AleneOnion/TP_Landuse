@@ -1,0 +1,188 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# setwd("C:/Users/leneo/Dropbox/Alene/Rscripts/Current")
+# source("new_database/Reading.LMAS.Data.R")
+# setwd("C:/Users/leneo/Dropbox/Alene/Rscripts/TP_Landuse")
+
+rm(list=setdiff(ls(), c("newdata")))
+
+```
+
+
+```{r}
+library(tidymodels)
+library(ISLR)
+library(rpart.plot)
+library(vip)
+
+landcover_2016 <- read.csv("Statewide_Lake_Watershed_NLCD_2016_percentages_NHD_LakeID.csv")
+
+landcover_2016<-landcover_2016 %>% 
+  mutate(DEVELOPED=VALUE_21+VALUE_22+VALUE_23+VALUE_24,
+         DISTURBANCE=VALUE_21+VALUE_22+VALUE_23+VALUE_24+VALUE_31+VALUE_81+VALUE_82) %>% 
+  select(Lake_ID,DEVELOPED,DISTURBANCE) %>% distinct() %>% 
+  rename(LAKE_HISTORY_ID = Lake_ID)
+
+past_10yr<-newdata %>% 
+  filter(SAMPLE_DATE > "2011-01-01")
+
+past_10yr_TP<-past_10yr %>% 
+  filter(CHARACTERISTIC_NAME == "PHOSPHORUS, TOTAL") %>%
+  filter(INFORMATION_TYPE == "OW") %>% 
+  filter(RSLT_VALIDATOR_QUALIFIER != "R" | is.na(RSLT_VALIDATOR_QUALIFIER)) %>% 
+  group_by(LAKE_HISTORY_ID) %>% 
+  mutate(RSLT_RESULT_VALUE = mean(RSLT_RESULT_VALUE, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  distinct(LAKE_HISTORY_ID, .keep_all = TRUE)
+
+past_10yr_TP<-past_10yr_TP %>% 
+  select(LAKE_HISTORY_ID, RSLT_RESULT_VALUE)
+
+TP_matrix<-inner_join(past_10yr_TP, landcover_2016, by = "LAKE_HISTORY_ID")
+TP_matrix<-na.omit(TP_matrix)
+
+TP_matrix<-TP_matrix %>% 
+  mutate(DISTURBANCE = as.numeric(DISTURBANCE)) %>% 
+  rename(TP = RSLT_RESULT_VALUE)
+
+TP_matrix<-na.omit(TP_matrix)
+
+TP_matrix<-as.data.frame(TP_matrix)
+
+```
+
+
+Landuse~TP
+```{r}
+
+h0<-NA
+h1<-NA
+TP<-TP_matrix[,2]
+DISTURBANCE<-TP_matrix[,3]
+
+
+cpdev2 <- rpart (TP ~ DISTURBANCE)             # This is the entire tree
+cpdev1 <- snip.rpart(cpdev2,toss=2) # This trims one branch
+cpdev <- snip.rpart(cpdev1, toss=3) # This has only the first split
+
+rpart.plot(cpdev)  # This plots the first split, which is the changepoint.
+cpdev
+
+# The top number is the changepoint
+# The bottom numbers are the averages of the response data to the left and the
+# right of the changepoint.
+
+### NOTE - Click on the graph, then select "Recording" from the "History"
+# pull-down menu in the top left corner of the RGui window.  This will allow you
+# to save graphs in memory.  Use the page up and page down buttons to cycle
+# through the graphs in memory.
+
+
+cpdev2 ### The entire tree based on RPART
+rpart.plot(cpdev2)
+
+z<- cpdev$splits[1,4]   # x value of changepoint
+cpdev$frame
+num<-cpdev$frame[1,2]
+avg<-mean(DISTURBANCE)  # or cpdev$frame[1,5] will also get overall average
+highx<-subset(TP_matrix, TP_matrix[,3]>z)
+lowx<-subset(TP_matrix, TP_matrix[,3]<=z)
+low<-mean(lowx[,3])
+high<-mean(highx[,3])
+
+
+out2<-c(z, low, high)
+names(out2)<-c("chngp","mean left","mean right")
+out2 ### This is the changepoint based on RPART
+
+###########################################################################
+###### Song Qian's (Duke Univeristy) code for computing changepoint with p-value
+###### Song's code computes a slightly different changepoing.  I am not sure
+###### if one is better than the other.
+
+   mx <- sort(unique(DISTURBANCE))
+   m <- length(mx)
+   vi <- numeric()
+   vi [m] <- sum((TP - mean(TP))^2)
+
+   for(i in 1:(m-1)) {
+      vi[i] <- sum((TP[DISTURBANCE <= mx[i]] - mean(TP[DISTURBANCE <=
+               mx[i]]))^2) + sum((TP[DISTURBANCE > mx[i]] - mean(
+               TP[DISTURBANCE > mx[i]]))^2)
+              }
+   chngp <- mean(mx[vi == min(vi)])
+
+   F.stat <- (vi[m]-min(vi))*(length(DISTURBANCE)-2)/(vi[m]*2)
+   p.value <- 1-pf(F.stat, 2, length(DISTURBANCE)-2)
+   out <- c(chngp, p.value, mean(TP[DISTURBANCE <= chngp]), mean(TP[DISTURBANCE > chngp]))
+   names(out) <- c("chngp", "p-value", "mean left", "mean right")
+   out
+
+##### bootstrap estimate of changepoint
+
+theta <- function(x){rpart(TP_matrix[x,2]~TP_matrix[x,3])$splits[1,4]}
+results<- bootstrap(1:num,1000,theta)
+#Warning: `bootstrap()` is deprecated and will be removed in an upcoming release of broom. See the rsample package instead.
+#Error in by_group && !is.null(groups(df)) : invalid 'x' type in 'x && y'
+
+hist(results$thetastar,breaks=100, col="darkgray",
+    main="Histogram of Bootstrap Changepoints", xlab = "% DISTURBANCE Land Cover")
+#mean(results$thetastar)
+summary(results$thetastar)
+
+## 90% confidence interval for changepoint
+quantile(results$thetastar,c(0.05,0.95))
+
+
+####### SCATTERPLOT WITH CHANGEPOINT
+# Do you want open circles or solid circles for data points in the scatterplot?
+circle<-1  # 1=open, 16=solid
+circlecol<- "black"  #enter a color
+
+# Do you want to display a LOWESS regression line on the scatterplot?
+lowessline<-"N"       # enter "Y" or "N"
+lowesscol<-"blue"   # enter a color
+lowesslwd<-2        # enter a width
+lowesslty<-1        # enter line type (1=solid,2=dashed,3=dotted)
+
+# Do you want to display a vertical line respresenting the changepoint on
+# the scatterplot?
+cpline<-"Y"       # enter "Y" or "N"
+cpcol<-"red"   # enter a color
+cplwd<-2        # enter a width
+cplty<-1        # enter line type (1=solid,2=dashed,3=dotted)
+
+# Do you want to display horizontal lines that show the average response
+# values on either side of the changepoint?
+avline<-"N"       # enter "Y" or "N"
+avcol<-"green"   # enter a color
+avlwd<-2        # enter a width
+avlty<-1        # enter line type (1=solid,2=dashed,3=dotted)
+
+# Do you want to display a horizontal line that shows the average response
+# value for all the data?
+aline<-"N"       # enter "Y" or "N"
+acol<-"black"   # enter a color
+alwd<-1        # enter a width
+alty<-3        # enter line type (1=solid,2=dashed,3=dotted)
+
+
+
+plot (TP,DISTURBANCE, ylab="% DISTURBANCE Land Cover",bty="l", col=circlecol, pch=circle,xlab="TP (ug/L)")
+if(lowessline=="Y"){lines(lowess(DISTURBANCE~TP), lwd=lowesslwd, col=lowesscol,lty=lowesslty)}
+if(cpline=="Y"){abline(v=z, col=cpcol, lwd=cplwd, lty=cplty)}# changepoint of stressor variable
+if(aline=="Y"){abline(h=avg, col=acol, lwd=alwd,lty=alty)}   # average of all data
+if(avline=="Y"){segments(0,low,z,low,col=avcol, lwd=avlwd, lty=avlty) #average of response data on left
+segments(z,high,max(TP),high,col=avcol, lwd=avlwd, lty=avlty)} #average of resonse data on right
+
+
+
+```
+
+
+
+
