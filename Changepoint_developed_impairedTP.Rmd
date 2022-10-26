@@ -1,0 +1,140 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# setwd("C:/Users/leneo/Dropbox/Alene/Rscripts/Current")
+# source("new_database/Reading.LMAS.Data.R")
+# setwd("C:/Users/leneo/Dropbox/Alene/Rscripts/TP_Landuse")
+
+# setwd("C:/Users/amonion/New York State Office of Information Technology Services/BWAM - Lakes Database/Current")
+# source("new_database/Reading.LMAS.Data.R")
+# setwd("C:/Users/amonion/OneDrive - New York State Office of Information Technology Services/Rscripts/TP_Landuse")
+
+rm(list=setdiff(ls(), c("newdata")))
+
+```
+
+
+```{r}
+library(ISLR)
+library(rpart.plot)
+library(vip)
+library(tidyverse)
+library(readxl)
+library(bootstrap)
+library(rpart)
+library(lmtest)
+library(car)
+
+landcover_2016 <- read.csv("Statewide_Lake_Watershed_NLCD_2016_percentages_NHD_LakeID.csv")
+
+landcover_2016<-landcover_2016 %>% 
+  mutate(DEVELOPED=VALUE_21+VALUE_22+VALUE_23+VALUE_24,
+         DISTURBED=VALUE_21+VALUE_22+VALUE_23+VALUE_24+VALUE_31+VALUE_82) %>% 
+  select(Lake_ID,DEVELOPED,DISTURBED) %>% distinct() %>% 
+  rename(LAKE_HISTORY_ID = Lake_ID) %>% 
+  #convert to percentages
+  mutate(DEVELOPED=DEVELOPED/100,
+         DISTURBED=DISTURBED/100)
+
+#pull epilimnetic phosphorus data from the past 10 years with at least 6 samples and average values
+#those lakes with an average above 0.02 are impaired
+past_10yr_TP<-newdata %>% 
+  filter(SAMPLE_DATE > "2011-01-01") %>% 
+  filter(CHARACTERISTIC_NAME == "PHOSPHORUS, TOTAL") %>%
+  filter(INFORMATION_TYPE == "OW") %>% 
+  filter(RSLT_VALIDATOR_QUALIFIER != "R" | is.na(RSLT_VALIDATOR_QUALIFIER)) %>% 
+  group_by(LAKE_HISTORY_ID) %>% 
+  mutate(RSLT_RESULT_VALUE = mean(RSLT_RESULT_VALUE, na.rm = TRUE),
+         n=n()) %>% 
+  ungroup() %>% 
+  filter(n>5) %>% 
+  distinct(LAKE_HISTORY_ID, .keep_all = TRUE) %>% 
+  mutate(impaired=ifelse(RSLT_RESULT_VALUE>.02,"impaired","non-impaired"))
+
+past_10yr_TP<-past_10yr_TP %>% 
+  select(LAKE_HISTORY_ID, impaired)
+
+TP_matrix<-inner_join(past_10yr_TP, landcover_2016, by = "LAKE_HISTORY_ID")
+
+TP_matrix<-na.omit(TP_matrix)
+
+TP_matrix<-TP_matrix %>% 
+  mutate(DEVELOPED = as.numeric(DEVELOPED)) %>% 
+  rename(TP = impaired)
+
+TP_matrix<-na.omit(TP_matrix)
+
+TP_matrix<-as.data.frame(TP_matrix)
+
+TP_matrix<-TP_matrix %>% 
+  mutate(uniqueid=LAKE_HISTORY_ID,
+         SITE_SCORE=TP) %>% 
+  select(uniqueid,DEVELOPED,SITE_SCORE) %>% distinct()
+rm(list=setdiff(ls(), c("newdata","TP_matrix")))
+
+```
+
+
+Landuse~TP
+```{r}
+
+developed<-TP_matrix 
+
+h0<-NA
+h1<-NA
+DEVELOPED<-developed[,2]
+SITE_SCORE<-developed[,3]
+
+
+cpdev2 <- rpart (SITE_SCORE~DEVELOPED, method = "class")   # This is the entire tree
+cpdev1 <- snip.rpart(cpdev2,toss=2) # This trims one branch
+cpdev <- snip.rpart(cpdev1, toss=3) # This has only the first split
+
+rpart.plot(cpdev)  # This plots the first split, which is the changepoint.
+cpdev
+
+# The top number is the changepoint
+# The bottom numbers are the averages of the response data to the left and the
+# right of the changepoint.
+
+### NOTE - Click on the graph, then select "Recording" from the "History"
+# pull-down menu in the top left corner of the RGui window.  This will allow you
+# to save graphs in memory.  Use the page up and page down buttons to cycle
+# through the graphs in memory.
+
+
+cpdev2 ### The entire tree based on RPART
+rpart.plot(cpdev2)
+
+z<- cpdev$splits[1,4]   # x value of changepoint
+cpdev$frame
+num<-cpdev$frame[1,2]
+avg<-mean(DEVELOPED)  # or cpdev$frame[1,5] will also get overall average
+highx<-subset(developed, developed[,2]>z)
+lowx<-subset(developed, developed[,2]<=z)
+low<-mean(lowx[,2])
+high<-mean(highx[,2])
+
+
+out2<-c(z, low, high)
+names(out2)<-c("chngp","mean left","mean right")
+out2 ### This is the changepoint based on RPART
+
+##### bootstrap estimate of changepoint
+
+theta <- function(x){rpart(developed[x,3]~developed[x,2],method = "class")$splits[1,4]}
+results<- bootstrap(1:num,1000,theta)
+hist(results$thetastar,breaks=100, col="darkgray",
+    main="Histogram of Bootstrap Changepoints", xlab = "% Development")
+mean(results$thetastar)
+median(results$thetastar)
+summary(results$thetastar)
+
+## 90% confidence interval for changepoint
+quantile(results$thetastar,c(0.05,0.95))
+
+```
+

@@ -1,0 +1,129 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# setwd("C:/Users/leneo/Dropbox/Alene/Rscripts/Current")
+# source("new_database/Reading.LMAS.Data.R")
+# setwd("C:/Users/leneo/Dropbox/Alene/Rscripts/TP_Landuse")
+
+rm(list=setdiff(ls(), c("newdata")))
+
+```
+
+
+```{r}
+library(tidymodels)
+library(ISLR)
+library(rpart.plot)
+library(vip)
+
+df<-newdata %>% 
+  filter(CHARACTERISTIC_NAME %in% c("PHOSPHORUS, TOTAL"),
+         substr(SAMPLE_DATE,1,4)>'2010',
+         INFORMATION_TYPE=="OW",
+         !is.na(LAKE_HISTORY_ID)) %>% 
+  mutate(depth=ifelse(!is.na(CSLAPFD_SITE_SOUND_DEPTH),CSLAPFD_SITE_SOUND_DEPTH,ifelse(!is.na(LCIFD_MAX_SOUND_DEPTH),LCIFD_MAX_SOUND_DEPTH,NA)))  %>%
+  filter(RSLT_VALIDATOR_QUALIFIER!="R"|is.na(RSLT_VALIDATOR_QUALIFIER)) %>% 
+  mutate(RSLT_RESULT_VALUE=ifelse(!is.na(RSLT_VALIDATOR_QUALIFIER)&RSLT_VALIDATOR_QUALIFIER=="U",RSLT_METHOD_DETECTION_LIMIT/2,RSLT_RESULT_VALUE))%>%  
+  filter(!is.na(RSLT_RESULT_VALUE)) %>% 
+  #convert to ppb
+  mutate(phosphorus=1000*RSLT_RESULT_VALUE,
+         depth=as.numeric(depth)) %>% 
+  group_by(LAKE_HISTORY_ID) %>% 
+  summarize(depth=max(depth),
+         phosphorus=median(phosphorus)) %>% 
+  ungroup()%>% 
+  select(LAKE_HISTORY_ID,depth,phosphorus) %>% distinct() 
+
+landcover_2016 <- read.csv("Statewide_Lake_Watershed_NLCD_2016_percentages_NHD_LakeID.csv")
+
+landcover_2016<-landcover_2016 %>% 
+  mutate(DEVELOPED=VALUE_21+VALUE_22+VALUE_23+VALUE_24,
+         #note that the 2013 article did not use 81 (pasture hay) but we include it
+         DISTURBANCE=VALUE_21+VALUE_22+VALUE_23+VALUE_24+VALUE_31+VALUE_82+VALUE_81) %>% 
+  mutate(LAKE_HISTORY_ID = Lake_ID) %>% 
+  filter(LAKE_HISTORY_ID!=" ") %>% 
+  distinct(LAKE_HISTORY_ID,.keep_all = TRUE) %>% 
+  select(LAKE_HISTORY_ID,DEVELOPED,DISTURBANCE) %>% distinct() 
+TP_matrix<-inner_join(df, landcover_2016, by = "LAKE_HISTORY_ID")
+#add discrete depth value
+TP_matrix<-TP_matrix %>% 
+  #transform phosphorus to logtp
+  mutate(TP=log10(phosphorus)) %>% 
+  select(LAKE_HISTORY_ID,TP,DEVELOPED) %>% distinct() %>% 
+  mutate(DEVELOPED = as.numeric(DEVELOPED)) 
+
+TP_matrix<-na.omit(TP_matrix)
+
+TP_matrix<-as.data.frame(TP_matrix)
+
+#The red line uses the GAM functionality within ggplot2’s geom_smooth 
+library(ggplot2)
+print(plot<-ggplot(TP_matrix,aes(x=DEVELOPED,y=TP))+
+        geom_smooth()+
+        geom_point(aes(x=DEVELOPED,y=TP)))
+
+```
+
+
+Landuse~TP
+```{r}
+
+h0<-NA
+h1<-NA
+TP<-TP_matrix[,2]
+DEVELOPED<-TP_matrix[,3]
+
+
+cpdev2 <- rpart (TP ~ DEVELOPED)             # This is the entire tree
+cpdev1 <- snip.rpart(cpdev2,toss=2) # This trims one branch
+cpdev <- snip.rpart(cpdev1, toss=3) # This has only the first split
+
+rpart.plot(cpdev)  # This plots the first split, which is the changepoint.
+cpdev
+
+# The top number is the changepoint
+# The bottom numbers are the averages of the response data to the left and the
+# right of the changepoint.
+
+### NOTE - Click on the graph, then select "Recording" from the "History"
+# pull-down menu in the top left corner of the RGui window.  This will allow you
+# to save graphs in memory.  Use the page up and page down buttons to cycle
+# through the graphs in memory.
+
+
+cpdev2 ### The entire tree based on RPART
+rpart.plot(cpdev2)
+
+z<- cpdev$splits[1,4]   # x value of changepoint
+cpdev$frame
+num<-cpdev$frame[1,2]
+avg<-mean(DEVELOPED)  # or cpdev$frame[1,5] will also get overall average
+highx<-subset(TP_matrix, TP_matrix[,3]>z)
+lowx<-subset(TP_matrix, TP_matrix[,3]<=z)
+low<-mean(lowx[,3])
+high<-mean(highx[,3])
+
+
+out2<-c(z, low, high)
+names(out2)<-c("chngp","mean left","mean right")
+out2 ### This is the changepoint based on RPART
+
+
+#Plot with added changepoints
+print(plot<-ggplot(TP_matrix,aes(x=DEVELOPED,y=TP-log10(1000*.02)))+
+        geom_smooth()+
+        geom_vline(xintercept=3.2)+
+        geom_vline(xintercept=34)+
+        geom_hline(yintercept=0)+
+        geom_point(aes(x=DEVELOPED,y=TP-log10(1000*.02)))+
+        ylab("log TP deviation from WQS 20 ug/L or 1.3 in log scale")+
+        xlab("% DEVELOPED"))
+
+```
+
+
+
+

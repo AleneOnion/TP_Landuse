@@ -1,0 +1,102 @@
+---
+title: "Lake IBI Changepoint Chloride - Categorical"
+author: "Matthew Kraft"
+date: "3/20/2022"
+output: html_document
+---
+
+```{r, load packages and data, include=FALSE}
+
+library(ISLR)
+library(rpart.plot)
+library(vip)
+library(tidyverse)
+library(readxl)
+library(bootstrap)
+library(rpart)
+library(lmtest)
+library(car)
+
+All_Lake_Chemistry_10222021 <- read_excel(file.path(here::here(),
+                              "data",
+                              "All_Lake_Chemistry_10222021.xlsx"))
+
+chemistry<-All_Lake_Chemistry_10222021 %>% 
+  unite("uniqueid", c(LOCATION,year_macro), sep = "_", remove = FALSE, na.rm=FALSE)
+
+final_metric_scores <- read_csv(file.path(here::here(),
+                              "data",
+                              "final_metric_scores.csv"))
+```
+
+```{r}
+
+chloride<-inner_join(chemistry, final_metric_scores, by = "uniqueid")
+
+chloride<-na.omit(chloride)
+
+chloride<-as.data.frame(chloride)
+
+chloride<-chloride %>% 
+  select(uniqueid, CHLORIDE, SITE_SCORE) %>% 
+  mutate(SITE_SCORE = case_when(
+    SITE_SCORE < 5 ~"impaired",
+    SITE_SCORE >=5 ~"non-impaired",
+  ))
+
+h0<-NA
+h1<-NA
+CHLORIDE<-chloride[,2]
+SITE_SCORE<-chloride[,3]
+
+
+cpdev2 <- rpart (SITE_SCORE~CHLORIDE, method = "class")   # This is the entire tree
+cpdev1 <- snip.rpart(cpdev2,toss=2) # This trims one branch
+cpdev <- snip.rpart(cpdev1, toss=3) # This has only the first split
+
+rpart.plot(cpdev)  # This plots the first split, which is the changepoint.
+cpdev
+
+# The top number is the changepoint
+# The bottom numbers are the averages of the response data to the left and the
+# right of the changepoint.
+
+### NOTE - Click on the graph, then select "Recording" from the "History"
+# pull-down menu in the top left corner of the RGui window.  This will allow you
+# to save graphs in memory.  Use the page up and page down buttons to cycle
+# through the graphs in memory.
+
+
+cpdev2 ### The entire tree based on RPART
+rpart.plot(cpdev2)
+
+z<- cpdev$splits[1,4]   # x value of changepoint
+cpdev$frame
+num<-cpdev$frame[1,2]
+avg<-mean(CHLORIDE)  # or cpdev$frame[1,5] will also get overall average
+highx<-subset(chloride, chloride[,2]>z)
+lowx<-subset(chloride, chloride[,2]<=z)
+low<-mean(lowx[,2])
+high<-mean(highx[,2])
+
+
+out2<-c(z, low, high)
+names(out2)<-c("chngp","mean left","mean right")
+out2 ### This is the changepoint based on RPART
+
+##### bootstrap estimate of changepoint
+
+theta <- function(x){rpart(chloride[x,3]~chloride[x,2],method = "class")$splits[1,4]}
+results<- bootstrap(1:num,1000,theta)
+hist(results$thetastar,breaks=100, col="darkgray",
+    main="Histogram of Bootstrap Changepoints", xlab = "Chloride (mg/L)")
+mean(results$thetastar)
+median(results$thetastar)
+summary(results$thetastar)
+
+## 90% confidence interval for changepoint
+quantile(results$thetastar,c(0.05,0.95))
+
+
+```
+

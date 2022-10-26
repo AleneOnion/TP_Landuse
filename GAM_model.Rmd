@@ -1,0 +1,189 @@
+---
+title: "Relationship of Phosphorus, Depth and Development in NY lakes"
+author: "Onion"
+date: "2022-06-07"
+output:  
+  html_document: 
+    toc: yes
+    toc_depth: 6
+    toc_float:
+      collapsed: no
+    code_folding: hide
+    theme: paper
+    highlight: zenburn
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#  {.tabset}
+
+
+
+## Phosphorus
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+library(tidyverse)
+library(mgcv)
+#library(visreg)
+library(grid)
+```
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+# setwd("C:/Users/amonion/New York State Office of Information Technology Services/BWAM - Lakes Database/Current")
+# source("new_database/Reading.LMAS.Data.R")
+# setwd("C:/Users/amonion/OneDrive - New York State Office of Information Technology Services/Rscripts/TP_Landuse")
+
+#get data from database
+df<-newdata %>% 
+  filter(CHARACTERISTIC_NAME %in% c("PHOSPHORUS, TOTAL"),
+         substr(SAMPLE_DATE,1,4)>'2010',
+         INFORMATION_TYPE=="OW",
+         !is.na(LAKE_HISTORY_ID)) %>% 
+  mutate(depth=ifelse(!is.na(CSLAPFD_SITE_SOUND_DEPTH),CSLAPFD_SITE_SOUND_DEPTH,ifelse(!is.na(LCIFD_MAX_SOUND_DEPTH),LCIFD_MAX_SOUND_DEPTH,NA)))  %>%
+  filter(RSLT_VALIDATOR_QUALIFIER!="R"|is.na(RSLT_VALIDATOR_QUALIFIER)) %>% 
+  mutate(RSLT_RESULT_VALUE=ifelse(!is.na(RSLT_VALIDATOR_QUALIFIER)&RSLT_VALIDATOR_QUALIFIER=="U",RSLT_METHOD_DETECTION_LIMIT/2,RSLT_RESULT_VALUE))%>%  
+  filter(!is.na(RSLT_RESULT_VALUE)) %>% 
+  #convert to ppb
+  mutate(phosphorus=1000*RSLT_RESULT_VALUE,
+         depth=as.numeric(depth)) %>% 
+  group_by(LAKE_HISTORY_ID) %>% 
+  summarize(depth=max(depth),
+         phosphorus=median(phosphorus)) %>% 
+  ungroup()%>% 
+  select(LAKE_HISTORY_ID,depth,phosphorus) %>% distinct() 
+
+#arrange data
+LAKE_IDS <- unique(df$LAKE_HISTORY_ID) #list lakes
+
+
+landcover_2016 <- read.csv("Statewide_Lake_Watershed_NLCD_2016_percentages_NHD_LakeID.csv")
+
+landcover_2016<-landcover_2016 %>% 
+  mutate(DEVELOPED=VALUE_21+VALUE_22+VALUE_23+VALUE_24,
+         #note that the 2013 article did not use 81 (pasture hay) but we include it
+         DISTURBED=VALUE_21+VALUE_22+VALUE_23+VALUE_24+VALUE_31+VALUE_82+VALUE_81) %>% 
+  mutate(LAKE_HISTORY_ID = Lake_ID) %>% 
+  filter(LAKE_HISTORY_ID!=" ") %>% 
+  distinct(LAKE_HISTORY_ID,.keep_all = TRUE) %>% 
+  select(LAKE_HISTORY_ID,DEVELOPED,DISTURBED) %>% distinct() 
+acid<-inner_join(df, landcover_2016, by = "LAKE_HISTORY_ID")
+#add discrete depth value
+acid<-acid %>% mutate(depth_discrete=ifelse(is.na(depth),"unknown",ifelse(depth>4.5,"deep","shallow"))) %>% 
+  #transform phosphorus to logtp
+  mutate(logTP=log10(phosphorus)) %>% 
+  mutate(meanTP=mean(logTP)) 
+
+```
+
+
+using the GAM functionality within ggplot2’s geom_smooth 
+
+first phosphorus versus Development
+
+Vertical line is the result of the changepoint analysis (50% disturbance)
+Horizontal line is the mean logTP for the data set as a whole
+
+
+``` {r gam, echo=FALSE, message=FALSE, warning=FALSE}
+# #GAM
+# gam1 <- gam(phosphorus~s(DEVELOPED, bs="cr"), data=acid)
+# summary(gam1)
+# plot(gam1)
+
+#The red line uses the GAM functionality within ggplot2’s geom_smooth 
+library(ggplot2)
+print(plot<-ggplot(acid,aes(x=DEVELOPED,y=phosphorus))+
+        geom_smooth()+
+        geom_point(aes(x=DISTURBED,y=phosphorus,color=depth_discrete))+
+        geom_vline(xintercept=40)+
+        scale_y_continuous(limits = c(0,100)))
+```
+
+phosphorus versus human disturbance (includes mining and agriculture)
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+# #GAM
+# gam1 <- gam(phosphorus~s(DEVELOPED, bs="cr"), data=acid)
+# summary(gam1)
+# plot(gam1)
+
+#The red line uses the GAM functionality within ggplot2’s geom_smooth 
+library(ggplot2)
+print(plot<-ggplot(acid,aes(x=DISTURBED,y=phosphorus))+
+        geom_smooth()+
+        geom_point(aes(x=DISTURBED,y=phosphorus,color=depth_discrete))+
+        geom_vline(xintercept=40))
+```
+
+
+Then phosphorus versus depth
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+print(plot<-ggplot(acid,aes(x=depth,y=phosphorus))+
+        geom_smooth()+
+        geom_point()+
+        geom_vline(xintercept=10)+
+        scale_y_continuous(limits = c(0,100)))
+
+```
+
+## Now using Log TP
+
+using the GAM functionality within ggplot2’s geom_smooth 
+
+first phosphorus versus Development
+
+Vertical line is the result of the changepoint analysis (50% disturbance)
+Horizontal line is the mean logTP for the data set as a whole
+
+
+first logTP versus Development
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+# #GAM
+# gam1 <- gam(logTP~s(DEVELOPED, bs="cr"), data=acid)
+# summary(gam1)
+# plot(gam1)
+
+#The red line uses the GAM functionality within ggplot2’s geom_smooth 
+library(ggplot2)
+print(plot<-ggplot(acid,aes(x=DEVELOPED,y=logTP))+
+        geom_smooth()+
+        geom_point(aes(x=DISTURBED,y=logTP,color=depth_discrete))+
+        geom_vline(xintercept=40)+
+        geom_hline(yintercept=1.14))
+```
+
+logTP versus human disturbance (includes mining and agriculture)
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+# #GAM
+# gam1 <- gam(logTP~s(DEVELOPED, bs="cr"), data=acid)
+# summary(gam1)
+# plot(gam1)
+
+#The red line uses the GAM functionality within ggplot2’s geom_smooth 
+library(ggplot2)
+print(plot<-ggplot(acid,aes(x=DISTURBED,y=logTP))+
+        geom_smooth()+
+        geom_point(aes(x=DISTURBED,y=logTP,color=depth_discrete))+
+        geom_vline(xintercept=40)+
+        geom_hline(yintercept=1.14))
+```
+
+
+Then logTP versus depth
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+print(plot<-ggplot(acid,aes(x=depth,y=logTP))+
+        geom_smooth()+
+        geom_point()+
+        geom_vline(xintercept=10))
+
+```
+
