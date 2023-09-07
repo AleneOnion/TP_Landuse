@@ -1,0 +1,169 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+  # setwd("C:/Users/amonion/New York State Office of Information Technology Services/BWAM - Lakes Database/Current")
+  # source("new_database/Reading.LMAS.Data.R")
+  # setwd("C:/Users/amonion/OneDrive - New York State Office of Information Technology Services/Rscripts/TP_Landuse")
+
+  rm(list=setdiff(ls(), c("newdata")))
+
+```
+
+
+
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+rm(list=setdiff(ls(), c("newdata","lake","status")))
+
+library(tidyverse)
+
+#pulls the lake depth from the database  
+lakedepth <- newdata%>%
+select(LAKE_HISTORY_ID,CSLAPFD_SITE_SOUND_DEPTH,LCIFD_MAX_SOUND_DEPTH,RSLT_PROFILE_DEPTH,LCIFD_SITE_SOUND_DEPTH) %>% distinct() %>%
+  group_by(LAKE_HISTORY_ID) %>%
+  summarize(CSLAPFD_SITE_SOUND_DEPTH=max(CSLAPFD_SITE_SOUND_DEPTH,na.rm = TRUE),
+            LCIFD_MAX_SOUND_DEPTH=max(LCIFD_MAX_SOUND_DEPTH,na.rm = TRUE),
+            LCIFD_SITE_SOUND_DEPTH=max(LCIFD_SITE_SOUND_DEPTH,na.rm = TRUE),
+            RSLT_PROFILE_DEPTH=max(RSLT_PROFILE_DEPTH,na.rm = TRUE)) %>%
+   ungroup() %>%
+  mutate(depth=pmax(CSLAPFD_SITE_SOUND_DEPTH,LCIFD_MAX_SOUND_DEPTH,LCIFD_SITE_SOUND_DEPTH,RSLT_PROFILE_DEPTH,na.rm = TRUE)) %>%
+  select(LAKE_HISTORY_ID,depth) %>%
+  mutate(depth=as.numeric(depth)) %>%
+  filter(depth<500) %>%
+  group_by(LAKE_HISTORY_ID) %>%
+  summarize(depth=max(depth)) %>%
+  ungroup() 
+
+
+
+
+
+#read in the watershed data 
+watershed<- read.csv("C:/Users/amonion/New York State Office of Information Technology Services/BWAM - LCI reports/LCI_Reports/data/NNC_Lakes_Watershed_Land_Use_NLCD_2016_percentages_excluding_water.csv")
+  watershed2<- read.csv("C:/Users/amonion/New York State Office of Information Technology Services/BWAM - LCI reports/LCI_Reports/data/Statewide_Lake_Watershed_NLCD_2016_percentages_NHD_LakeID.csv") %>%
+    select( "Perimeter","LAKE_HISTORY_ID")
+   
+  
+  
+#merges the lake depth and the watershed information and simplify land use categories
+watershed<-merge(watershed,lakedepth,by=c('LAKE_HISTORY_ID'),all.x=TRUE) 
+watershed<-merge(watershed,watershed2, by=c('LAKE_HISTORY_ID'),all.x=TRUE)
+
+
+watershed$Developed.Open_Space <- as.numeric(as.character(watershed$Developed.Open_Space))
+watershed$Developed.Low_Intensity <- as.numeric(as.character(watershed$Developed.Low_Intensity))
+watershed$Developed.Medium_Intensity <- as.numeric(as.character(watershed$Developed.Medium_Intensity))
+watershed$Developed.High_Intensity <- as.numeric(as.character(watershed$Developed.High_Intensity))
+watershed$Deciduous_Forest <- as.numeric(as.character(watershed$Deciduous_Forest))
+watershed$Evergree_Forest <- as.numeric(as.character(watershed$Evergree_Forest))
+watershed$Mixed_Forest <- as.numeric(as.character(watershed$Mixed_Forest))
+watershed$Emergent_Herbaceous_Wetlands <- as.numeric(as.character(watershed$Emergent_Herbaceous_Wetlands))
+watershed$Woody_Wetlands <- as.numeric(as.character(watershed$Woody_Wetlands))
+watershed$Cultivated_Crops <- as.numeric(as.character(watershed$Cultivated_Crops))
+watershed$Pasture_Hay <- as.numeric(as.character(watershed$Pasture_Hay))
+watershed$Barren_Land <- as.numeric(as.character(watershed$Barren_Land))
+watershed$Shrub_Scrub <- as.numeric(as.character(watershed$Shrub_Scrub))
+watershed$Grassland_Herbaceous<- as.numeric(as.character(watershed$Grassland_Herbaceous))
+
+watershed<-watershed %>%
+  mutate(`Developed %`=Developed.Open_Space+Developed.Low_Intensity+Developed.Medium_Intensity+Developed.High_Intensity) %>%
+  mutate(`Forest %` =Deciduous_Forest+Evergree_Forest+Mixed_Forest)%>%  #combines categories 
+  mutate(`Wetlands %`=Emergent_Herbaceous_Wetlands+Woody_Wetlands)%>%
+  mutate(`Agriculture %`=Cultivated_Crops+Pasture_Hay)  %>% 
+  select(LAKE_HISTORY_ID, LkAcres,Barren_Land,Shrub_Scrub,Perimeter,Grassland_Herbaceous,
+         `Developed %`,`Forest %`,`Wetlands %`,`Agriculture %`, depth) %>% distinct() %>%
+  mutate(across(LkAcres:depth, round, 1)) %>%     #Rounds the variables to nearest tenth 
+  mutate_at(vars(LkAcres:depth),as.character) %>%     #makes values in chart characters for easy manipulation in future charts
+  rename("Lake Size (AC)"="LkAcres","Barren Land %"="Barren_Land","Shrub Scrub %"="Shrub_Scrub","Grassland Herbaceous %"="Grassland_Herbaceous", "Perimeter (m)"="Perimeter",  "Depth (m)"="depth" )
+
+#simplifications and fixes to the database values before merging
+total_data<-newdata %>% 
+  rename("Lake Classification"="LOCATION_WATERBODY_CLASSIFICATION", "Public Water Supply"= "PWS")%>%
+  filter(is.na(RSLT_VALIDATOR_QUALIFIER) | RSLT_VALIDATOR_QUALIFIER != "R") %>% 
+  mutate(RSLT_RESULT_VALUE==ifelse(grepl("U",RSLT_VALIDATOR_QUALIFIER),RSLT_METHOD_DETECTION_LIMIT/2,RSLT_RESULT_VALUE))
+
+
+
+# pulls nitrate-nitrite for total n calc
+nox <- total_data %>% 
+  select(CHARACTERISTIC_NAME,RSLT_RESULT_VALUE,SAMPLE_DATE, LAKE_HISTORY_ID,INFORMATION_TYPE) %>% 
+  filter(CHARACTERISTIC_NAME %in% c("NITROGEN, NITRATE-NITRITE")==TRUE) %>% 
+  mutate(Year=as.numeric(substr(SAMPLE_DATE,1,4))) 
+# pull tkn for total n calc 
+tkn <- total_data %>% 
+  select(CHARACTERISTIC_NAME,RSLT_RESULT_VALUE,SAMPLE_DATE, LAKE_HISTORY_ID, INFORMATION_TYPE) %>% 
+  filter(CHARACTERISTIC_NAME %in% c("NITROGEN, KJELDAHL, TOTAL")==TRUE) %>% 
+  mutate(Year=as.numeric(substr(SAMPLE_DATE,1,4))) %>% 
+  select(RSLT_RESULT_VALUE,SAMPLE_DATE, LAKE_HISTORY_ID,INFORMATION_TYPE)
+# combine them to be calculated 
+tkn_nox <- inner_join(nox, tkn, by=c('LAKE_HISTORY_ID', 'SAMPLE_DATE','INFORMATION_TYPE'))
+tkn_nox <- na.omit(tkn_nox) 
+# total n calculation 
+tkn_nox$total_N<- tkn_nox$RSLT_RESULT_VALUE.x + tkn_nox$RSLT_RESULT_VALUE.y
+tkn_nox<-tkn_nox %>% 
+  select(CHARACTERISTIC_NAME, total_N, LAKE_HISTORY_ID, SAMPLE_DATE,INFORMATION_TYPE)
+
+tkn_nox<- tkn_nox %>% 
+mutate(CHARACTERISTIC_NAME = recode(CHARACTERISTIC_NAME, `NITROGEN, NITRATE-NITRITE` = "NITROGEN, TOTAL")) %>% 
+  rename("RSLT_RESULT_VALUE" ="total_N") %>% 
+  select(CHARACTERISTIC_NAME, RSLT_RESULT_VALUE, LAKE_HISTORY_ID, SAMPLE_DATE, INFORMATION_TYPE)
+ 
+# merge calc with total data 
+total_data <- full_join(total_data,tkn_nox)
+
+
+#Remove lakes for reasons described below 
+#removed because watershed delineation of the watershed was missing
+removed_lakes<- read.csv("C:/Users/amonion/New York State Office of Information Technology Services/BWAM - LCI reports/LCI_Reports/remove.lakes.to.fix.later.csv")
+total_data <- total_data %>%
+  filter(!LAKE_HISTORY_ID %in% c(unique(removed_lakes$LAKE_HISTORY_ID)))
+# removes lakes with multisite that have to be run separate
+multisite_removed_lakes<- read.csv("C:/Users/amonion/New York State Office of Information Technology Services/BWAM - LCI reports/LCI_Reports/multisite_removed.csv")
+total_data <- total_data %>%
+  filter(!LAKE_HISTORY_ID %in% c(unique(multisite_removed_lakes$LAKE_HISTORY_ID)))
+
+
+
+total_data<-merge(total_data,watershed,by=c('LAKE_HISTORY_ID'),all.x=TRUE)
+rm(list=setdiff(ls(), c("newdata","lake","status","total_data")))
+```
+
+Gam models
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+
+#Soils<-read.csv()
+
+#removing all NA values
+TP_matrix<-total_data %>% 
+  filter(!is.na(logTP),!is.na(DISTURBANCE)) %>% distinct()
+
+#GAM
+#without depth
+gam1 <- gam(logTP~s(DISTURBANCE,df=20), data=TP_matrix)
+#gam2 <- gam(logCHLA~s(logTP,k=4), data=df)
+#gam3 <- gam(logCHLA~s(logTP,k=150), data=df)
+summary(gam1)
+plot(gam1, se=TRUE)
+
+#without depth
+gam2 <- gam(logTP~s(DISTURBANCE,df=20)+s(depth,df=20), data=TP_matrix %>% filter(!is.na(depth)))
+#gam2 <- gam(logCHLA~s(logTP,k=4), data=df)
+#gam3 <- gam(logCHLA~s(logTP,k=150), data=df)
+summary(gam2)
+par(mfrow=c(1,2)) #to partition the Plotting Window
+plot(gam2,se = TRUE)
+
+
+```
+
+
+
+
+
+
+
+

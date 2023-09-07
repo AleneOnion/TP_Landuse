@@ -1,0 +1,117 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+  # setwd("C:/Users/amonion/New York State Office of Information Technology Services/BWAM - Lakes Database/Current")
+  # source("new_database/Reading.LMAS.Data.R")
+  # setwd("C:/Users/amonion/OneDrive - New York State Office of Information Technology Services/Rscripts/TP_Landuse")
+
+  rm(list=setdiff(ls(), c("newdata")))
+
+```
+
+
+log transformed
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+library(gam)
+
+#restrict to lakes 
+restricted<-newdata %>%
+  filter(LAKE_WATERBODY_TYPE=="LAKE") %>% 
+  select(LAKE_HISTORY_ID) %>% distinct()
+df<-newdata%>% 
+  filter(LAKE_HISTORY_ID %in% c(unique(restricted$LAKE_HISTORY_ID))) %>% distinct() %>%  
+  filter(CHARACTERISTIC_NAME %in% c("PHOSPHORUS, TOTAL"),
+         substr(SAMPLE_DATE,1,4)>'2010',
+         INFORMATION_TYPE=="OW",
+         !is.na(LAKE_HISTORY_ID)) %>% 
+    filter(RSLT_VALIDATOR_QUALIFIER!="R"|is.na(RSLT_VALIDATOR_QUALIFIER)) %>% 
+  mutate(RSLT_RESULT_VALUE=ifelse(!is.na(RSLT_VALIDATOR_QUALIFIER)&RSLT_VALIDATOR_QUALIFIER=="U",RSLT_QUANTITATION_LIMIT/2,RSLT_RESULT_VALUE))%>%  
+  filter(!is.na(RSLT_RESULT_VALUE)) %>% 
+  select(LAKE_HISTORY_ID,SAMPLE_DATE,RSLT_RESULT_VALUE) %>% distinct()
+
+
+lakedepth <- newdata%>%
+  filter(LAKE_HISTORY_ID %in% c(unique(restricted$LAKE_HISTORY_ID))) %>% distinct() %>%
+  select(LAKE_HISTORY_ID,CSLAPFD_SITE_SOUND_DEPTH,LCIFD_MAX_SOUND_DEPTH,RSLT_PROFILE_DEPTH,LCIFD_SITE_SOUND_DEPTH) %>% distinct() %>%
+  mutate(LCIFD_MAX_SOUND_DEPTH=as.numeric(LCIFD_MAX_SOUND_DEPTH),CSLAPFD_SITE_SOUND_DEPTH=as.numeric(CSLAPFD_SITE_SOUND_DEPTH)) %>% 
+  group_by(LAKE_HISTORY_ID) %>%
+  summarize(CSLAPFD_SITE_SOUND_DEPTH=max(CSLAPFD_SITE_SOUND_DEPTH,na.rm = TRUE),
+            LCIFD_MAX_SOUND_DEPTH=max(LCIFD_MAX_SOUND_DEPTH,na.rm = TRUE),
+            LCIFD_SITE_SOUND_DEPTH=max(LCIFD_SITE_SOUND_DEPTH,na.rm = TRUE),
+            RSLT_PROFILE_DEPTH=max(RSLT_PROFILE_DEPTH,na.rm = TRUE)) %>%
+   ungroup() %>%
+  gather(type,depth,-LAKE_HISTORY_ID) %>% 
+  mutate(depth=as.numeric(depth)) %>% 
+  group_by(LAKE_HISTORY_ID) %>% 
+  summarise(depth=max(depth)) %>% 
+  ungroup()
+
+df<-merge(df,lakedepth,by=c('LAKE_HISTORY_ID'),all.x=TRUE)
+
+df<-df %>% 
+  #convert to ppb
+  mutate(phosphorus=1000*RSLT_RESULT_VALUE,
+         depth=as.numeric(depth)) %>% 
+  group_by(LAKE_HISTORY_ID) %>% 
+  summarize(depth=max(depth),
+         phosphorus=median(phosphorus)) %>% 
+  ungroup()%>% 
+  select(LAKE_HISTORY_ID,depth,phosphorus) %>% distinct() %>% 
+  filter(!is.na(phosphorus)) %>% 
+  mutate(logTP=log10(phosphorus))
+
+#add watershed disturbance
+#excludes all water
+#landcover_2016 <- read.csv("NNC_Lakes_Watershed_Land_Use_NLCD_2016_percentages_excluding_water_filtered.csv")
+#excluding only the lake water
+landcover_2016 <- read.csv("NNC_Lakes_Watershed_Land_Use_NLCD_2016_percentages_excluding_lake_area_filtered.csv")
+
+landcover_2016<-landcover_2016 %>% 
+  mutate_at(c('VALUE_11','VALUE_21','VALUE_22','VALUE_23','VALUE_24','VALUE_31','VALUE_41','VALUE_42','VALUE_43','VALUE_52',
+  'VALUE_71','VALUE_81','VALUE_82','VALUE_90','VALUE_95','VALUE_TOTAL'),as.numeric) %>% 
+  mutate(DEVELOPED=VALUE_21+VALUE_22+VALUE_23+VALUE_24,
+         #note that the 2013 article did not use 81 (pasture hay) but we include it
+         DISTURBANCE=VALUE_21+VALUE_22+VALUE_23+VALUE_24+VALUE_82+VALUE_81) %>% 
+  mutate(LAKE_HISTORY_ID = LAKE_ID) %>% 
+  filter(LAKE_HISTORY_ID!=" ") %>% 
+  distinct(LAKE_HISTORY_ID,.keep_all = TRUE) %>% 
+  select(LAKE_HISTORY_ID,DEVELOPED,DISTURBANCE,LkAcres) %>% distinct() 
+
+TP_matrix<-merge(df, landcover_2016, by = "LAKE_HISTORY_ID",all.x = TRUE)
+
+#removing all NA values
+TP_matrix<-TP_matrix %>% 
+  filter(!is.na(logTP),!is.na(DISTURBANCE)) %>% distinct()
+
+#GAM
+#without depth
+gam1 <- gam(logTP~s(DISTURBANCE,df=20), data=TP_matrix)
+#gam2 <- gam(logCHLA~s(logTP,k=4), data=df)
+#gam3 <- gam(logCHLA~s(logTP,k=150), data=df)
+summary(gam1)
+plot(gam1, se=TRUE)
+
+#without depth
+gam2 <- gam(logTP~s(DISTURBANCE,df=20)+s(depth,df=20), data=TP_matrix %>% filter(!is.na(depth)))
+#gam2 <- gam(logCHLA~s(logTP,k=4), data=df)
+#gam3 <- gam(logCHLA~s(logTP,k=150), data=df)
+summary(gam2)
+par(mfrow=c(1,2)) #to partition the Plotting Window
+plot(gam2,se = TRUE)
+
+
+
+
+```
+
+
+
+
+
+
+
+

@@ -1,0 +1,399 @@
+---
+title: "2022.03.Workbook"
+output: html_document
+date:  "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#  {.tabset}
+
+## Purpose
+
+This is the motivation (from Jacobson et al 2016):
+"We quantified water quality effects of land use by calculating the relative amount of disturbed land within a watershed. A simple, yet direct watershed disturbance variable (percentage of urban, agriculture, and mining land uses in a catchment) was developed by Cross and Jacobson (2013) using National Land Cover Database 2001 land use GIS data. The percentage land use disturbance variable was significant in models predicting total phosphorus concentrations in Minnesota lakes (Cross and Jacobson 2013). Catchments with undisturbed land uses lie primarily in the Northern Forests ecoregion (CEC 1997; Level 1) and generally provide good water quality to lakes and streams in that region (Figure 5). Catchments within the agricultural Great Plains ecoregion have the highest disturbed land uses and appreciably poorer water quality (Heiskary et al. 1987; Ramstack et al. 2004). Catchments in the transition from forest to prairie in the Eastern Temperate Forests ecoregion have a wide range of disturbance values. Cross and Jacobson (2013) noted that phosphorus concentrations generally become elevated when watershed land use disturbance reached 25% and greatly increased when land use disturbances exceeded 60%. These disturbance values set the foundation for the identification of appropriate management strategies for water quality in lakes under this framework. Lakes with relatively undisturbed watersheds need protection, whereas lakes with heavily disturbed watersheds need restoration."
+
+
+coding reference: https://rdrr.io/cran/mgcViz/man/plot.gamViz.html
+
+GAM reference: http://r.qcbs.ca/workshop08/book-en/gam-with-interaction-terms.html
+
+
+## Correlations
+
+Parameters:
+
+1. Median, epilimnetic, Total Phosphorus
+
+2. W:L (although as noted, this is % open water which isn't truely W:L)
+
+3. Depth (when available)
+
+4. NLCD watershed Disturbance (2016 NLCD: VALUE_21+VALUE_22+VALUE_23+VALUE_24+VALUE_82+VALUE_81 --> #note that the 2013 article did not use 81 (pasture hay) but we include it)
+
+5. Soil with high rate of water transmission (group A): https://www.arcgis.com/home/item.html?id=56d328b000274fcfb17864a7bb0ccaff
+
+"Soils with parent material formed by glacial outwash are usually well drained. We used maps developed by Cum- mins and Grigal (1981) and digitized by MNDNR (2011) to identify areas with glacial outwash, which we summarized as a percent of the total watershed for each lake. We summarized land use categories assigned by the National Land Cover Database (Homer et al. 2004) as a percent of the total watershed area for each lake." - Jacobson 2013
+
+We used group A as an alternative to this parameter used by Jacobson.
+
+6. NLCD disturbance in the 100m buffer (2019 NLCD)
+
+7. 
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+  # setwd("C:/Users/amonion/New York State Office of Information Technology Services/BWAM - Lakes Database/Current")
+  # source("new_database/Reading.LMAS.Data.R")
+   setwd("C:/Users/amonion/OneDrive - New York State Office of Information Technology Services/Rscripts/TP_Landuse")
+
+  rm(list=setdiff(ls(), c("newdata","status")))
+
+```
+
+
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+
+#restrict to lakes 
+restricted<-newdata %>%
+  filter(LAKE_WATERBODY_TYPE=="LAKE") %>% 
+  select(LAKE_HISTORY_ID) %>% distinct()
+df<-newdata%>% 
+  filter(LAKE_HISTORY_ID %in% c(unique(restricted$LAKE_HISTORY_ID))) %>% distinct() %>%  
+  filter(CHARACTERISTIC_NAME %in% c("PHOSPHORUS, TOTAL"),
+         substr(SAMPLE_DATE,1,4)>'2010',
+         INFORMATION_TYPE=="OW",
+         !is.na(LAKE_HISTORY_ID)) %>% 
+  filter(RSLT_VALIDATOR_QUALIFIER!="R"|is.na(RSLT_VALIDATOR_QUALIFIER)) %>% 
+  mutate(RSLT_RESULT_VALUE=ifelse(!is.na(RSLT_VALIDATOR_QUALIFIER)&RSLT_VALIDATOR_QUALIFIER=="U",RSLT_QUANTITATION_LIMIT/2,RSLT_RESULT_VALUE))%>%  
+  filter(!is.na(RSLT_RESULT_VALUE)) %>% 
+  select(LAKE_HISTORY_ID,SAMPLE_DATE,RSLT_RESULT_VALUE) %>% distinct()
+
+
+lakedepth <- newdata%>%
+  filter(LAKE_HISTORY_ID %in% c(unique(df$LAKE_HISTORY_ID))) %>% distinct() %>%
+  select(LAKE_HISTORY_ID,CSLAPFD_SITE_SOUND_DEPTH,RSLT_PROFILE_DEPTH,LCIFD_MAX_SOUND_DEPTH,LCIFD_SITE_SOUND_DEPTH) %>% distinct() %>%
+  mutate(CSLAPFD_SITE_SOUND_DEPTH=gsub("m","",CSLAPFD_SITE_SOUND_DEPTH),
+         CSLAPFD_SITE_SOUND_DEPTH=gsub(" ","",CSLAPFD_SITE_SOUND_DEPTH),
+         RSLT_PROFILE_DEPTH=gsub("m","",RSLT_PROFILE_DEPTH),
+         RSLT_PROFILE_DEPTH=gsub(" ","",RSLT_PROFILE_DEPTH),
+         LCIFD_MAX_SOUND_DEPTH=gsub("m","",LCIFD_MAX_SOUND_DEPTH),
+         LCIFD_MAX_SOUND_DEPTH=gsub(" ","",LCIFD_MAX_SOUND_DEPTH),
+         LCIFD_SITE_SOUND_DEPTH=gsub("m","",LCIFD_SITE_SOUND_DEPTH),
+         LCIFD_SITE_SOUND_DEPTH=gsub(" ","",LCIFD_SITE_SOUND_DEPTH)) %>% 
+  mutate(CSLAPFD_SITE_SOUND_DEPTH=as.numeric(CSLAPFD_SITE_SOUND_DEPTH),
+         RSLT_PROFILE_DEPTH=as.numeric(RSLT_PROFILE_DEPTH),
+         LCIFD_MAX_SOUND_DEPTH=as.numeric(LCIFD_MAX_SOUND_DEPTH),
+         LCIFD_SITE_SOUND_DEPTH=as.numeric(LCIFD_SITE_SOUND_DEPTH)) %>% 
+  group_by(LAKE_HISTORY_ID) %>%
+  summarize(CSLAPFD_SITE_SOUND_DEPTH=max(CSLAPFD_SITE_SOUND_DEPTH,na.rm = TRUE),
+            LCIFD_MAX_SOUND_DEPTH=max(LCIFD_MAX_SOUND_DEPTH,na.rm = TRUE),
+            LCIFD_SITE_SOUND_DEPTH=max(LCIFD_SITE_SOUND_DEPTH,na.rm = TRUE),
+            RSLT_PROFILE_DEPTH=max(RSLT_PROFILE_DEPTH,na.rm = TRUE)) %>%
+   ungroup() %>%
+  gather(type,depth,-LAKE_HISTORY_ID) %>% 
+  mutate(depth=as.numeric(depth)) %>% 
+  group_by(LAKE_HISTORY_ID) %>% 
+  summarise(depth=max(depth)) %>% 
+  ungroup() %>% 
+  mutate(depth=ifelse(depth==-Inf,NA,depth))
+
+df<-merge(df,lakedepth,by=c('LAKE_HISTORY_ID'),all.x=TRUE)
+
+df<-df %>% 
+  #convert to log transformed ppb
+  mutate(phosphorus=1000*RSLT_RESULT_VALUE,
+         depth=as.numeric(depth)) %>% 
+  #unrealistic values
+  filter(phosphorus==is.na(phosphorus)|phosphorus<1000) %>% 
+  group_by(LAKE_HISTORY_ID) %>% 
+  summarize(depth=max(depth),
+         phosphorus=median(phosphorus)) %>% 
+  ungroup()%>% 
+  select(LAKE_HISTORY_ID,depth,phosphorus) %>% distinct() %>% 
+  filter(!is.na(phosphorus)) %>% 
+  #NATURAL LOG
+  mutate(logTP=log(phosphorus))
+
+#add watershed disturbance
+#excluding only the lake water
+landcover <- read.csv("NLCD_2019_Lake_Watershed.csv")
+landcover<-landcover %>% 
+  mutate_at(c('Open.Water','Developed..Open.Space', 'Developed..Low.Intensity','Developed..Medium.Intensity.','Developed..High.Intensity','Barren.Land','Deciduous.Forest','Evergreen.Forest','Mixed.Forest','Shrub.Scrub',
+  'Herbaceous','Hay.Pasture','Cultivated.Crops','Woody.Wetlands','Emergent.Herbaceous.Wetlands'),as.numeric) %>% 
+  mutate(#note that the 2013 article did not use 81 (pasture hay) but we include it
+         totalall=Developed..Open.Space+Developed..Low.Intensity+Developed..Medium.Intensity.+Developed..High.Intensity+
+           Barren.Land+Deciduous.Forest+Evergreen.Forest+Mixed.Forest+Shrub.Scrub+Herbaceous+
+           Hay.Pasture+Cultivated.Crops+Woody.Wetlands+Emergent.Herbaceous.Wetlands,
+         DISTURBANCE=Developed..Open.Space+Developed..Low.Intensity+Developed..Medium.Intensity.+Developed..High.Intensity+
+           Hay.Pasture+Cultivated.Crops) %>% 
+  rename(LAKE_HISTORY_ID = LAKE_ID) %>% 
+  filter(LAKE_HISTORY_ID!=" ") %>% 
+  distinct(LAKE_HISTORY_ID,.keep_all = TRUE) %>% 
+  select(LAKE_HISTORY_ID,DISTURBANCE,totalall) %>% distinct() 
+#add lake/watershed area
+WLarea<- read.csv("NLCD_watershed_lake_ratio.csv") 
+WLarea<-WLarea %>% 
+  rename(LAKE_HISTORY_ID=LAKE_ID) %>% 
+  select(LAKE_HISTORY_ID,WaterbodyAreaSQM,WatershedAreaSQM) %>% 
+  mutate(WLarea=WatershedAreaSQM/WaterbodyAreaSQM) %>% distinct(LAKE_HISTORY_ID,.keep_all = TRUE)
+landcover<-merge(landcover,WLarea,by=c('LAKE_HISTORY_ID'),all.x=TRUE)
+landcover<-landcover %>% 
+  #convert to a percentage
+  filter(!is.na(LAKE_HISTORY_ID),!is.na(DISTURBANCE),!is.na(WaterbodyAreaSQM),!is.na(WLarea)) %>% 
+  select(LAKE_HISTORY_ID,DISTURBANCE,WaterbodyAreaSQM,WLarea,totalall) %>% distinct()
+
+#adding 100m buffer disturbance
+buffer<-read.csv("NLCD_2019_Watershed_100m_buffer.csv")
+buffer<-buffer %>% 
+    mutate_at(c('Open.Water','Developed.Open.Space','Developed.Low.Intensity','Developed.Medium.Intensity','Developed.High.Intensity','Barren.Land','Deciduous.Forest','Evergreen.Forest','Mixed.Forest','Shrub.Scrub',
+  'Herbaceous','Hay.Pasture','Cultivated.Crops','Woody.Wetlands','Emergent.Herbaceous.Wetlands'),as.numeric) %>% 
+  rename(LAKE_HISTORY_ID=LAKE_ID) %>% 
+  mutate(total100=(Developed.Open.Space+Developed.Low.Intensity+
+           Developed.Medium.Intensity+Developed.High.Intensity+
+           Barren.Land+Deciduous.Forest+Evergreen.Forest+Mixed.Forest+Shrub.Scrub+Herbaceous+
+           Cultivated.Crops+Hay.Pasture+Woody.Wetlands+Emergent.Herbaceous.Wetlands),
+         DISTURBANCE100m=(Developed.Open.Space+Developed.Low.Intensity+
+           Developed.Medium.Intensity+Developed.High.Intensity+
+           Cultivated.Crops+Hay.Pasture),
+         DISTURBANCE100m=if_else(is.na(DISTURBANCE100m),0,DISTURBANCE100m)) %>% 
+  select(LAKE_HISTORY_ID,DISTURBANCE100m,total100) %>% distinct()
+landcover<-merge(landcover,buffer,by=c('LAKE_HISTORY_ID'),all.x=TRUE)
+
+#adding septics
+septic<-read.csv("septics.csv")
+septic<-septic %>% rename(LAKE_HISTORY_ID=LAKE_ID) %>% 
+  select(LAKE_HISTORY_ID,Septic.Density) %>% distinct() %>% rename(septic=Septic.Density) %>% 
+  mutate(urban_fringe=ifelse(septic>0,"yes","no")) %>% 
+  select(LAKE_HISTORY_ID,urban_fringe) %>% distinct()
+landcover<-merge(landcover,septic,by=c('LAKE_HISTORY_ID'),all.x=TRUE)
+#make sure all NA urban fringe values are "no"
+landcover<-landcover %>% 
+  mutate(urban_fringe=ifelse(is.na(urban_fringe),"no",urban_fringe),
+         urban_fringe=fct_relevel(urban_fringe,'no','yes'))
+
+landcover<-landcover %>% 
+  mutate(#I added this to see if I could make 100m significant by subtracting it from the total. It didn't change conclusions below
+         # DISTURBANCE=DISTURBANCE-DISTURBANCE100m,
+         # totalall=totalall-total100,
+         DISTURBANCE = DISTURBANCE/totalall,
+         DISTURBANCE100m=DISTURBANCE100m/total100) %>%
+  filter(!is.na(LAKE_HISTORY_ID),!is.na(DISTURBANCE),!is.na(WaterbodyAreaSQM),!is.na(WLarea),!is.na(DISTURBANCE100m),!is.na(urban_fringe)) %>% 
+  select(LAKE_HISTORY_ID,DISTURBANCE,WaterbodyAreaSQM,WLarea,DISTURBANCE100m,urban_fringe) %>% distinct()
+
+#adding soil type
+soil<-read.csv("SSURGO_2019_Lake_Watershed_soils.csv")
+soil<-soil %>%  
+  mutate(well_drained_soils=(GROUP_A+GROUP_B)/(GROUP_A+GROUP_B+GROUP_C+GROUP_D+GROUP_A_D+GROUP_B_D+GROUP_C_D)) %>% 
+  select(LAKE_ID,well_drained_soils) %>% distinct() %>% 
+  rename(LAKE_HISTORY_ID=LAKE_ID)
+landcover<-merge(landcover,soil,by=c('LAKE_HISTORY_ID'),all.x=TRUE)
+landcover<-landcover %>% 
+  filter(!is.na(LAKE_HISTORY_ID),!is.na(DISTURBANCE),!is.na(WaterbodyAreaSQM),!is.na(WLarea),!is.na(DISTURBANCE100m),!is.na(urban_fringe),!is.na(well_drained_soils)) %>% 
+  select(LAKE_HISTORY_ID,DISTURBANCE,WaterbodyAreaSQM,WLarea,DISTURBANCE100m,urban_fringe,well_drained_soils) %>% distinct() %>% 
+  distinct(LAKE_HISTORY_ID,.keep_all = TRUE)
+
+
+
+TP_matrix<-merge(df, landcover, by = "LAKE_HISTORY_ID",all.x = TRUE)
+
+#removing all NA values
+TP_matrix<-TP_matrix %>% 
+  filter(!is.na(logTP),!is.na(DISTURBANCE)) %>% distinct()
+
+rm(list=setdiff(ls(), c("newdata",'TP_matrix')))
+```
+
+
+
+The KT Correlations of these parameters 
+
+
+```{r, echo=FALSE, results='asis', message=FALSE, warning=FALSE}
+library(EnvStats)
+
+#transform for correlation analysis
+matrix_TP<-TP_matrix %>% 
+  select(LAKE_HISTORY_ID,depth,DISTURBANCE,DISTURBANCE100m,phosphorus,well_drained_soils,WLarea) %>% distinct() %>% 
+  gather(Parameter,Result,-LAKE_HISTORY_ID) %>% distinct()
+
+#create slopes table
+correlations<-data.frame(correlation=c(0,1),pair1=c("junk","junk"),pair2=c("junk","junk"))
+correlations<-correlations %>% 
+  mutate(pair1=as.character(pair1),pair2=as.character(pair2)) 
+
+params<-unique(matrix_TP$Parameter)
+nparams<-length(params)
+
+for(i in 1:nparams){
+  for(k in 1:nparams){
+    if(params[i]!=params[k]){
+    temp1<-matrix_TP %>% 
+      filter(Parameter %in% c(params[i],params[k]),!is.na(Result)) %>% 
+      select(LAKE_HISTORY_ID,Parameter,Result) %>% distinct() %>% 
+      spread(Parameter,Result) %>% 
+      filter_at(c(2,3),all_vars(!is.na(.)))
+
+    temp3<-cor.test(temp1[,2],temp1[,3],alternative ="two.sided", method = "kendall", continuity = TRUE)
+      tau<-as.data.frame(t(temp3$estimate))
+      tau$pair1<-params[i]
+      tau$pair2<-params[k]
+      tau$pvalue<-temp3$p.value
+      tau<-tau %>% 
+        mutate(correlation=ifelse(pvalue>0.05,0,tau)) %>% 
+        select(correlation,pair1,pair2) %>% 
+        distinct()
+      correlations<-merge(correlations,tau,all=TRUE)
+      rm(list=setdiff(ls(), c('newdata','TP_matrix','matrix_TP','params','nparams','i','k','correlations')))
+      }
+  }
+}
+
+correlations2<-correlations %>% 
+  filter(pair1!="junk",pair2!="junk") %>% 
+  mutate(correlation=round(correlation,3)) %>% 
+  spread(pair2,correlation) 
+
+knitr::kable(correlations2, col.names = gsub("[.]", " ", names(correlations2)))
+
+
+
+```
+
+
+Conclusions:
+
+1. Watershed disturbance has a greater correlation with phosphorus than the disturbance in the 100m buffer.
+
+2. Septic and well drained Soils are not correlated with phosphorus so I removed them from the model
+
+
+## GAM models
+
+documentation: https://cran.r-project.org/web/packages/mgcv/mgcv.pdf
+
+reference: https://www.mainard.co.uk/post/why-mgcv-is-awesome/#generalized-additive-models-gams
+
+from Jacobson et al 2013
+
+"For GAM calculations we used the mgcv package, which auto- matically selects degrees of freedom for each smooth term in the model by minimizing the generalized cross validation score. The GAM models were run using a Gaussian distri- bution and default settings.We used the GAM plot function to examine the contribution of each component’s smooth function on TP and to evaluate the statistical significance of each smooth term based on the null hypotheses that each smooth term is zero, similar to probability values of terms that would be calculated in a general linear model."
+
+Observations:
+
+### GAM:only_distdepth
+
+See the 2023.03 analysis to see all the iterations of the gam models that I tried
+
+I've restricted it to only dist/depth as this was the most successful model and trying to accomplish the following:
+
+1. plots generated by ggplot rather than the default gam plots
+
+2. Identifying thresholds for different depths
+
+```{r}
+library(mgcv)
+#GAM of all parameters
+only_distdepth <- gam(phosphorus~s(DISTURBANCE)+s(depth), data=TP_matrix %>% filter(!is.na(depth)))
+summary(only_distdepth)
+
+#GAM of only the significant parameters
+#check that the k value isn't too low. none of them should be significant
+gam.check(only_distdepth)
+#check that parameters aren't too similar (worst shouldn't be >0.5)
+concurvity(only_distdepth, full = TRUE)
+
+distdepth<-TP_matrix %>% select(depth,DISTURBANCE,phosphorus) %>% filter(!is.na(depth),!is.na(DISTURBANCE))
+
+predictions <- predict.gam(only_distdepth,distdepth)
+distdepth$prediction<-as.numeric(predictions)
+
+library(ggplot2)
+print(distdepth %>% filter(depth<50) %>% 
+        ggplot(aes(x=depth,y=prediction))+
+        geom_point(aes(color=DISTURBANCE))+
+        scale_colour_gradient2()+
+        labs(title="Predicted P changes with Lake Depth and %Disturbance ",
+             x ="Lake Depth (m)", 
+             y = "Predicted Total Phosphorus ug/L",
+             color="%Disturbance"))
+
+print(distdepth %>% filter(depth<50) %>%
+        ggplot(aes(x=DISTURBANCE,y=prediction))+
+        geom_point(aes(color=depth))+
+        scale_colour_gradient2()+
+        labs(title="Predicted P changes with Lake Depth and %Disturbance ",
+             x ="% Disturbance", 
+             y = "Predicted Total Phosphorus ug/L",
+             color="Lake Depth (m)"))
+
+```
+Now binning data by depth:
+<5m
+
+5-10m
+
+10-20m
+
+.>20m
+```{r}
+less5<-distdepth %>% filter(depth<5)
+fiveten<-distdepth %>% filter(depth>=5&depth<10)
+tentwenty<-distdepth %>% filter(depth>=10&depth<20)
+moretwenty<-distdepth %>% filter(depth>20)
+lesstwenty<-distdepth %>% filter(depth<=20)
+
+print(less5 %>% 
+        ggplot(aes(x=DISTURBANCE,y=prediction))+
+        #geom_point()+
+        geom_smooth()+
+        geom_hline(yintercept = 20)+
+        labs(title="Predicted P changes: <5m Lakes",
+             x ="% Disturbance", 
+             y = "Predicted Total Phosphorus ug/L"))
+print(fiveten %>% 
+        ggplot(aes(x=DISTURBANCE,y=prediction))+
+        geom_point()+
+        geom_smooth()+
+        geom_hline(yintercept = 20)+
+        labs(title="Predicted P changes: 5-10m Lakes",
+             x ="% Disturbance", 
+             y = "Predicted Total Phosphorus ug/L"))
+
+print(tentwenty %>% 
+        ggplot(aes(x=DISTURBANCE,y=prediction))+
+        geom_point()+
+        geom_smooth()+
+        geom_hline(yintercept = 20)+
+        labs(title="Predicted P changes: 10-20m Lakes",
+             x ="% Disturbance", 
+             y = "Predicted Total Phosphorus ug/L"))
+
+print(moretwenty %>% 
+        ggplot(aes(x=DISTURBANCE,y=prediction))+
+        geom_point()+
+        geom_smooth()+
+        geom_hline(yintercept = 20)+
+        labs(title="Predicted P changes: >20m Lakes",
+             x ="% Disturbance", 
+             y = "Predicted Total Phosphorus ug/L"))
+print(lesstwenty %>% 
+        ggplot(aes(x=DISTURBANCE,y=prediction))+
+        geom_point()+
+        geom_smooth()+
+        geom_hline(yintercept = 20)+
+        labs(title="Predicted P changes: <20m Lakes",
+             x ="% Disturbance", 
+             y = "Predicted Total Phosphorus ug/L"))
+
+print(distdepth %>% 
+        ggplot(aes(x=DISTURBANCE,y=prediction))+
+        #geom_point()+
+        geom_smooth()+
+        geom_hline(yintercept = 20)+
+        labs(title="Predicted P changes: all Lakes",
+             x ="% Disturbance", 
+             y = "Predicted Total Phosphorus ug/L"))
+```
+
